@@ -13,16 +13,27 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git zlib1g-dev libbz2-dev liblzma-dev libcurl4-openssl-dev autoconf
+
+      - name: Build SHAPEIT static binaries
+        run: |
+          cd docker
+          bash build.sh
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile
-          push: true
-          tags: jlin42/shapeit:latest
+      - name: Tag Docker image
+        run: |
+          IMAGE_ID=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^shapeit5_" | head -n 1)
+          docker tag "$IMAGE_ID" jlin42/shapeit:latest
+
+      - name: Push Docker image
+        run: |
+          docker push jlin42/shapeit:latest
