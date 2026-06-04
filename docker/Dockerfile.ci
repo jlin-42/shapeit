@@ -19,26 +19,32 @@ WORKDIR /tmp
 
 RUN apt-get update && apt-get -y upgrade && apt-get install -y \
         build-essential autoconf curl ca-certificates git pkg-config \
-        zlib1g-dev libbz2-dev liblzma-dev libcurl4-openssl-dev libssl-dev libdeflate-dev \
+        zlib1g-dev libbz2-dev liblzma-dev libdeflate-dev \
         libboost-iostreams-dev libboost-program-options-dev libboost-serialization-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Build htslib at /htslib-${HTSLIB_VERSION} so the SHAPEIT makefiles
 # (which hard-code -I/htslib-1.18) find headers + libhts.a there.
+# --disable-libcurl avoids pulling curl into the static link (and matches the
+# upstream Docker image, which also ships bcftools/htslib without curl support).
 RUN curl -fSL "https://github.com/samtools/htslib/releases/download/${HTSLIB_VERSION}/htslib-${HTSLIB_VERSION}.tar.bz2" \
         | tar -xj -C / && \
     cd "/htslib-${HTSLIB_VERSION}" && \
-    ./configure && \
+    ./configure --disable-libcurl && \
     make -j"$(nproc)"
 
 COPY . /src
 WORKDIR /src
 
+# Override DYN_LIBS_FOR_STATIC to drop -lcurl -lcrypto since htslib was built
+# without libcurl. Keep the rest (zlib, pthread, bz2, lzma, libdeflate).
 RUN set -eux; \
     mkdir -p /src/static_bins; \
     for comp in phase_common phase_rare switch ligate simulate xcftools; do \
         echo "=== Building ${comp} ==="; \
-        ( cd "/src/${comp}" && make clean && make -j"$(nproc)" static_exe ); \
+        ( cd "/src/${comp}" && make clean && \
+          make -j"$(nproc)" static_exe \
+            DYN_LIBS_FOR_STATIC="-lz -lpthread -lbz2 -llzma -ldeflate" ); \
         cp "/src/${comp}/bin/${comp}_static" "/src/static_bins/${comp}_static"; \
     done; \
     ls -l /src/static_bins
