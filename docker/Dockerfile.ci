@@ -5,7 +5,9 @@
 #############################
 # Stage 1: build static bins
 #############################
-FROM ubuntu:20.04 AS builder
+# Use 22.04 in the builder so we get gcc 11 (needs -std=c++20 support).
+# Static-linked binaries run fine on the 20.04 runtime stage below.
+FROM ubuntu:22.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
