@@ -31,7 +31,8 @@ RUN curl -fSL "https://github.com/samtools/htslib/releases/download/${HTSLIB_VER
         | tar -xj -C / && \
     cd "/htslib-${HTSLIB_VERSION}" && \
     ./configure --disable-libcurl && \
-    make -j"$(nproc)"
+    make -j"$(nproc)" && \
+    make install   # installs to /usr/local for xcftools (the other makefiles hardcode /htslib-1.18)
 
 COPY . /src
 WORKDIR /src
