@@ -1,0 +1,81 @@
+# syntax=docker/dockerfile:1.7
+# Multi-stage Dockerfile used by the GitHub Actions workflow to build SHAPEIT
+# entirely inside Docker (no host-side compilation needed).
+
+#############################
+# Stage 1: build static bins
+#############################
+FROM ubuntu:20.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+ARG HTSLIB_VERSION=1.18
+
+WORKDIR /tmp
+
+RUN apt-get update && apt-get -y upgrade && apt-get install -y \
+        build-essential autoconf curl ca-certificates git pkg-config \
+        zlib1g-dev libbz2-dev liblzma-dev libcurl4-openssl-dev libssl-dev libdeflate-dev \
+        libboost-iostreams-dev libboost-program-options-dev libboost-serialization-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Build htslib at /htslib-${HTSLIB_VERSION} so the SHAPEIT makefiles
+# (which hard-code -I/htslib-1.18) find headers + libhts.a there.
+RUN curl -fSL "https://github.com/samtools/htslib/releases/download/${HTSLIB_VERSION}/htslib-${HTSLIB_VERSION}.tar.bz2" \
+        | tar -xj -C / && \
+    cd "/htslib-${HTSLIB_VERSION}" && \
+    ./configure && \
+    make -j"$(nproc)"
+
+COPY . /src
+WORKDIR /src
+
+RUN set -eux; \
+    mkdir -p /src/static_bins; \
+    for comp in phase_common phase_rare switch ligate simulate xcftools; do \
+        echo "=== Building ${comp} ==="; \
+        ( cd "/src/${comp}" && make clean && make -j"$(nproc)" static_exe ); \
+        cp "/src/${comp}/bin/${comp}_static" "/src/static_bins/${comp}_static"; \
+    done; \
+    ls -l /src/static_bins
+
+#############################
+# Stage 2: runtime image
+#############################
+FROM ubuntu:20.04
+
+LABEL org.opencontainers.image.title="shapeit5"
+LABEL org.opencontainers.image.url="https://github.com/jlin-42/shapeit"
+LABEL org.opencontainers.image.source="https://github.com/jlin-42/shapeit"
+LABEL org.opencontainers.image.licenses="MIT"
+
+ENV HOME=/root
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+ARG DEBIAN_FRONTEND=noninteractive
+ARG BCFTOOLS_VERSION=1.20
+
+WORKDIR /tmp
+
+RUN apt-get update && apt-get -y upgrade && apt-get install -y \
+        curl ca-certificates gcc make autoconf \
+        zlib1g-dev libbz2-dev liblzma-dev && \
+    curl -fSL "https://github.com/samtools/bcftools/releases/download/${BCFTOOLS_VERSION}/bcftools-${BCFTOOLS_VERSION}.tar.bz2" \
+        | tar -xj && \
+    cd "bcftools-${BCFTOOLS_VERSION}" && \
+    ./configure && make && make install && \
+    cd /tmp && rm -rf "bcftools-${BCFTOOLS_VERSION}" && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+COPY --from=builder /src/static_bins/phase_common_static /bin/phase_common_static
+COPY --from=builder /src/static_bins/phase_rare_static   /bin/phase_rare_static
+COPY --from=builder /src/static_bins/switch_static       /bin/switch_static
+COPY --from=builder /src/static_bins/ligate_static       /bin/ligate_static
+COPY --from=builder /src/static_bins/simulate_static     /bin/simulate_static
+COPY --from=builder /src/static_bins/xcftools_static     /bin/xcftools_static
+
+RUN chmod +x /bin/*_static
+
+WORKDIR $HOME
