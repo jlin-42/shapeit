@@ -37,15 +37,23 @@ RUN curl -fSL "https://github.com/samtools/htslib/releases/download/${HTSLIB_VER
 COPY . /src
 WORKDIR /src
 
-# Override DYN_LIBS_FOR_STATIC to drop -lcurl -lcrypto since htslib was built
-# without libcurl. Keep the rest (zlib, pthread, bz2, lzma, libdeflate).
+# - Override DYN_LIBS_FOR_STATIC to drop -lcurl -lcrypto (htslib built without libcurl).
+# - Pass Boost .a paths explicitly: xcftools/makefile doesn't hardcode them in its
+#   static_exe target, and its auto-detection (whereis -> /usr/local/lib) misses
+#   the Ubuntu location at /usr/lib/x86_64-linux-gnu/.
 RUN set -eux; \
     mkdir -p /src/static_bins; \
+    BOOST_IO=/usr/lib/x86_64-linux-gnu/libboost_iostreams.a; \
+    BOOST_PO=/usr/lib/x86_64-linux-gnu/libboost_program_options.a; \
+    BOOST_SE=/usr/lib/x86_64-linux-gnu/libboost_serialization.a; \
     for comp in phase_common phase_rare switch ligate simulate xcftools; do \
         echo "=== Building ${comp} ==="; \
         ( cd "/src/${comp}" && make clean && \
           make -j"$(nproc)" static_exe \
-            DYN_LIBS_FOR_STATIC="-lz -lpthread -lbz2 -llzma -ldeflate" ); \
+            DYN_LIBS_FOR_STATIC="-lz -lpthread -lbz2 -llzma -ldeflate" \
+            BOOST_LIB_IO="${BOOST_IO}" \
+            BOOST_LIB_PO="${BOOST_PO}" \
+            BOOST_LIB_SE="${BOOST_SE}" ); \
         cp "/src/${comp}/bin/${comp}_static" "/src/static_bins/${comp}_static"; \
     done; \
     ls -l /src/static_bins
