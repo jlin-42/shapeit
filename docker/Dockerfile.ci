@@ -95,4 +95,8 @@ COPY --from=builder /src/static_bins/xcftools_static     /bin/xcftools_static
 
 RUN chmod +x /bin/*_static
 
+# Bundle the genetic maps and chunk files from the repo so users can refer to
+# e.g. /resources/maps/b38/chr1.b38.gmap.gz without mounting external data.
+COPY resources/ /resources/
+
 WORKDIR $HOME
